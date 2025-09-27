@@ -17,11 +17,12 @@ EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # --- Session State Initialization ---
-# The kb_is_ready flag will manage the UI flow
 if "kb_is_ready" not in st.session_state:
     st.session_state.kb_is_ready = False 
+    
+if "uploaded_file_names" not in st.session_state:
+    st.session_state.uploaded_file_names = [] # NEW: To store names of files for display
 
-# The actual database object is stored in session state
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = create_new_vector_store()
     
@@ -29,13 +30,11 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 
-# --- RAG Setup (Load the persisted database) ---
+# --- RAG Setup (same as before) ---
 @st.cache_resource
 def load_rag_chain():
-    """Sets up the RAG chain using the vector store from session state."""
-    
+    # ... (same function body) ...
     with st.spinner("⏳ Loading RAG resources..."):
-        # Retrieve the IN-MEMORY vector store from session state
         vector_store = st.session_state.vector_store
         
         try:
@@ -65,40 +64,58 @@ st.title("📚 Personalized Study Assistant")
 # Sidebar for file upload
 with st.sidebar:
     st.header("Manage Knowledge Base (Resets per Session)")
-    uploaded_file = st.file_uploader(
-        "Upload a new PDF to begin your session", 
+    
+    # CHANGE 1: Use accept_multiple_files=True to allow continuous uploads
+    uploaded_files = st.file_uploader(
+        "Upload new PDFs to add to your session", 
         type="pdf",
-        accept_multiple_files=False,
+        accept_multiple_files=True, # CHANGED
     )
     
-    if uploaded_file and st.button("Start Session"):
-        # --- FIX: Ensure we are dealing with a single file object ---
-        file_to_process = uploaded_file[0] if isinstance(uploaded_file, list) else uploaded_file
-        
-        # Get the existing (empty or populated) vector store from session state
-        current_vector_store = st.session_state.vector_store
+    if uploaded_files and st.button("Add Files to Session"):
+        if not uploaded_files:
+            st.error("Please select at least one file.")
+        else:
+            current_vector_store = st.session_state.vector_store
+            
+            # Use a progress bar for multiple files
+            progress_text = "Processing uploaded files..."
+            my_bar = st.progress(0, text=progress_text)
+            
+            for i, file in enumerate(uploaded_files):
+                my_bar.progress((i + 1) / len(uploaded_files), text=f"Processing {file.name}...")
+                try:
+                    ingest_file(current_vector_store, file)
+                    st.session_state.kb_is_ready = True
+                    if file.name not in st.session_state.uploaded_file_names:
+                        st.session_state.uploaded_file_names.append(file.name)
+                except Exception as e:
+                    st.error(f"Failed to process {file.name}: {e}")
+                    print(f"File Processing Error: {e}")
+            
+            my_bar.progress(1.0, text="All files processed!")
+            st.success("All files successfully added. Chat is ready!")
+            st.rerun() 
 
-        with st.spinner(f"Processing {file_to_process.name}..."):
-            try:
-                ingest_file(current_vector_store, file_to_process)
-                st.session_state.kb_is_ready = True
-                st.success(f"Successfully processed {file_to_process.name}. Chat is ready!")
-                # No need to clear cache, just rerun to update UI
-                st.rerun() 
-            except Exception as e:
-                st.error(f"Failed to process file: {e}")
-                print(f"File Processing Error: {e}") # Print full error to console
+    st.subheader("Current Documents")
+    if st.session_state.uploaded_file_names:
+        # CHANGE 2: Display all file names using a list
+        st.markdown(
+            "| **File Name** |\n| :--- |\n" +
+            "\n".join([f"| {name} |" for name in st.session_state.uploaded_file_names])
+        )
+    else:
+        st.info("No documents uploaded yet.")
 
-# Main content
+
+# Main content logic (same as before)
 if st.session_state.kb_is_ready:
     qa_chain = load_rag_chain()
     
-    # Display chat messages from history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # React to user input
     if prompt := st.chat_input("Ask a question about your study materials..."):
         st.chat_message("user").markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
