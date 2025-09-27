@@ -65,6 +65,18 @@ with st.sidebar:
     )
     
 if uploaded_file and st.button("Add to Knowledge Base"):
+    # Ensure uploaded_file is the file object, not a list.
+    # If the file uploader returns a list even for a single file, this unpacks it.
+    if isinstance(uploaded_file, list):
+        if len(uploaded_file) > 0:
+            file_to_process = uploaded_file[0]
+        else:
+            # Should not happen with the 'if uploaded_file' check, but good to have
+            st.sidebar.error("No file detected for processing.")
+            st.stop()
+    else:
+        file_to_process = uploaded_file
+    
     current_vector_store = load_rag_chain().retriever.vectorstore
 
     with st.spinner(f"Processing {uploaded_file.name}..."):
